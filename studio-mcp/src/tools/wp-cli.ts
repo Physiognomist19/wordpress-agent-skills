@@ -2,6 +2,9 @@ import { formatCliFailure, runStudioCli } from '../lib/studio-cli.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
+const BLOCKED_SUBCOMMANDS = new Set( [ 'eval', 'eval-file', 'shell', 'server' ] );
+const BLOCKED_FLAG_RE = /^--(exec|require|ssh)(=|$)/i;
+
 /**
  * Parse a command string into arguments, respecting quoted strings.
  * Examples:
@@ -66,7 +69,35 @@ export function registerWpCliTools( server: McpServer ) {
 				};
 			}
 
-			const args = [ 'wp', '--path', path, ...parseCommand( command ) ];
+			const parsedArgs = parseCommand( command );
+
+			// Block subcommands and flags that allow arbitrary code/file execution.
+			// Scan all args (not just index 0) to handle @alias-prefixed commands.
+			for ( const arg of parsedArgs ) {
+				const lower = arg.toLowerCase();
+				if ( BLOCKED_SUBCOMMANDS.has( lower ) ) {
+					return {
+						content: [
+							{
+								type: 'text',
+								text: `WP-CLI subcommand "${ arg }" is not allowed because it can execute arbitrary code.`,
+							},
+						],
+					};
+				}
+				if ( BLOCKED_FLAG_RE.test( arg ) ) {
+					return {
+						content: [
+							{
+								type: 'text',
+								text: `WP-CLI flag "${ arg }" is not allowed because it can execute arbitrary code.`,
+							},
+						],
+					};
+				}
+			}
+
+			const args = [ 'wp', '--path', path, ...parsedArgs ];
 
 			const res = await runStudioCli( args );
 

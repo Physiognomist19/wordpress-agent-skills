@@ -2,6 +2,40 @@ import { formatCliFailure, runStudioCli } from '../lib/studio-cli.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
+function isPrivateIPv4( ip: string ): boolean {
+	const parts = ip.split( '.' ).map( ( s ) => parseInt( s, 10 ) );
+	if ( parts.length !== 4 || parts.some( ( n ) => isNaN( n ) || n < 0 || n > 255 ) ) return true;
+	const [ a, b ] = parts;
+	return (
+		a === 0 || // 0.0.0.0/8 — unspecified / maps to loopback on some OSes
+		a === 10 || // 10.0.0.0/8 — private class A
+		a === 127 || // 127.0.0.0/8 — loopback
+		( a === 100 && b >= 64 && b <= 127 ) || // 100.64.0.0/10 — CGNAT
+		( a === 169 && b === 254 ) || // 169.254.0.0/16 — link-local / metadata services
+		( a === 172 && b >= 16 && b <= 31 ) || // 172.16.0.0/12 — private class B
+		( a === 192 && b === 168 ) // 192.168.0.0/16 — private class C
+	);
+}
+
+// hostname must already be lowercased; URL.hostname never includes IPv6 brackets
+function isPrivateHostname( hostname: string ): boolean {
+	if ( [ 'localhost', 'ip6-localhost', 'ip6-loopback' ].includes( hostname ) ) return true;
+	// IPv4-mapped IPv6 with dotted-decimal: ::ffff:x.x.x.x
+	const ipv4mapped = hostname.match( /^::ffff:(\d+\.\d+\.\d+\.\d+)$/ );
+	if ( ipv4mapped ) return isPrivateIPv4( ipv4mapped[ 1 ] );
+	// Pure IPv4
+	if ( /^\d+\.\d+\.\d+\.\d+$/.test( hostname ) ) return isPrivateIPv4( hostname );
+	// IPv6 loopback and unspecified
+	if ( hostname === '::1' || hostname === '::' ) return true;
+	// IPv4-mapped with hex groups (::ffff:c0a8:101) — Node does not normalize to dotted-decimal
+	if ( hostname.startsWith( '::ffff:' ) ) return true;
+	// fc00::/7 — unique local
+	if ( /^f[cd]/i.test( hostname ) ) return true;
+	// fe80::/10 — link-local
+	if ( /^fe[89ab]/i.test( hostname ) ) return true;
+	return false;
+}
+
 export function registerSiteTools( server: McpServer ) {
 	server.registerTool(
 		'studio_site_list',
@@ -289,14 +323,25 @@ export function registerSiteTools( server: McpServer ) {
 					};
 				}
 				if ( lower.startsWith( 'http://' ) || lower.startsWith( 'https://' ) ) {
+					let blueprintUrl: URL;
 					try {
-						new URL( blueprint );
+						blueprintUrl = new URL( blueprint );
 					} catch {
 						return {
 							content: [
 								{
 									type: 'text',
 									text: `Blueprint URL is not valid: ${ blueprint }`,
+								},
+							],
+						};
+					}
+					if ( isPrivateHostname( blueprintUrl.hostname.toLowerCase() ) ) {
+						return {
+							content: [
+								{
+									type: 'text',
+									text: 'Blueprint URLs pointing to private, loopback, or link-local addresses are not allowed.',
 								},
 							],
 						};

@@ -257,7 +257,7 @@ function renderSidebar() {
       for (var j = 0; j < artifacts.length; j++) {
         var a = artifacts[j];
         var isActive = activePhase === p.key && activeFile === a.file;
-        html += '<li><button class="artifact-link' + (isActive ? ' active' : '') + '" data-phase="' + p.key + '" data-file="' + a.file + '" onclick="selectArtifact(\'' + p.key + '\',\'' + a.file + '\')">'
+        html += '<li><button class="artifact-link' + (isActive ? ' active' : '') + '" data-phase="' + esc(p.key) + '" data-file="' + esc(a.file) + '">'
           + esc(a.label || ('v' + a.version))
           + '<span class="dots">' + dots(a.colors || []) + '</span>'
           + '</button></li>';
@@ -305,6 +305,15 @@ function esc(s) {
   return el.innerHTML;
 }
 
+function safeUrl(s) {
+  try {
+    var p = new URL(s || '');
+    return (p.protocol === 'http:' || p.protocol === 'https:') ? p.href : '';
+  } catch (e) {
+    return '';
+  }
+}
+
 // ── Navigation ──
 function selectArtifact(phase, file) {
   activePhase = phase;
@@ -334,7 +343,7 @@ function selectPhase(phase) {
     if (refs.length) {
       h += '<div class="ref-cards">';
       refs.forEach(function(r) {
-        h += '<a href="' + esc(r.url) + '" target="_blank" rel="noopener" class="ref-card">'
+        h += '<a href="' + safeUrl(r.url) + '" target="_blank" rel="noopener" class="ref-card">'
           + '<div class="title">' + esc(r.title || r.url) + '</div>'
           + (r.notes ? '<div class="notes">' + esc(r.notes) + '</div>' : '')
           + '</a>';
@@ -358,7 +367,7 @@ function selectPhase(phase) {
         h += '<div class="theme-card"><div class="name">' + esc(s) + '</div><div class="sub">WordPress block theme</div></div>';
       });
       if (currentData.siteUrl) {
-        h += '<p style="margin-top:16px;font-size:13px;color:#888">Site: <a href="' + esc(currentData.siteUrl) + '" target="_blank">' + esc(currentData.siteUrl) + '</a></p>';
+        h += '<p style="margin-top:16px;font-size:13px;color:#888">Site: <a href="' + safeUrl(currentData.siteUrl) + '" target="_blank">' + esc(currentData.siteUrl) + '</a></p>';
       }
     } else {
       h += '<div class="empty-state">Theme build in progress...</div>';
@@ -428,6 +437,11 @@ setInterval(async function() {
 
 // ── Init ──
 renderSidebar();
+
+document.getElementById('sidebar').addEventListener('click', function(e) {
+  var btn = e.target.closest('.artifact-link');
+  if (btn) selectArtifact(btn.dataset.phase, btn.dataset.file);
+});
 
 // Show latest artifact in the current phase on load.
 (function() {
